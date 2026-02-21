@@ -4,59 +4,79 @@ import threading
 from flask import Flask
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# --- FLASK SERVER (Render uchun majburiy) ---
-app = Flask('')
+# --- 1. RENDER UCHUN FLASK QISMI ---
+app = Flask(__name__)
 
 @app.route('/')
 def home():
     return "CinemaBox Bot is Live!"
 
 def run():
-    # Render portni avtomatik beradi, bo'lmasa 10000 ishlatiladi
+    # Render avtomatik ravishda 10000-portni beradi
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
 
-def keep_alive():
-    t = threading.Thread(target=run)
-    t.start()
-
-# --- BOT ASOSIY QISMI ---
+# --- 2. BOT ASOSIY SOZLAMALARI ---
 API_TOKEN = '8554399878:AAFn7Gc2Tk6ZMBZuBCdtyjEF9typ3isDOfE' # Tokeningiz
-ADMIN_ID = 7567698406 # Sizning ID
+ADMIN_ID = 7567698406 # Sizning ID raqamingiz
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# --- MA'LUMOTLAR BAZASI (Vaqtinchalik) ---
-# Eslatma: Render'da disk ulamasangiz, bot o'chib yonganda bu ma'lumotlar o'chadi
-movies = {} 
+# --- 3. MA'LUMOTLAR BAZASI (VAQTINCHALIK) ---
+# Diqqat: Render tekin tarifida bot o'chib yonganda bu ma'lumotlar o'chib ketadi.
+# Doimiy saqlash uchun kelajakda SQLite yoki MongoDB ulaymiz.
+movies = {}
+
+# --- 4. BOT BUYRUQLARI ---
 
 @dp.message_handler(commands=['start'])
 async def send_welcome(message: types.Message):
-    await message.reply("Salom! CinemaBox botiga xush kelibsiz.\nKino kodini yuboring yoki admin bo'lsangiz yangi kino qo'shing.")
+    await message.reply(
+        f"Salom {message.from_user.full_name}!\n"
+        "Kinochibotga xush kelibsiz. Kino kodini yuboring."
+    )
 
+# Admin uchun kino qo'shish yo'riqnomasi
 @dp.message_handler(commands=['add'], user_id=ADMIN_ID)
-async def add_movie_start(message: types.Message):
-    await message.reply("Kino qo'shish uchun format: /post [kod] [nomi]\nVa kinoni o'zini yuboring.")
+async def add_movie_help(message: types.Message):
+    await message.answer("Kino qo'shish uchun videoni yuboring va izohiga kodini yozing.")
 
-# Kino kodini tekshirish logikasi
+# Kino qidirish (Faqat raqam yuborilganda)
 @dp.message_handler(lambda message: message.text.isdigit())
 async def get_movie(message: types.Message):
     code = message.text
     if code in movies:
-        await message.answer_video(movies[code]['file_id'], caption=movies[code]['caption'])
+        movie = movies[code]
+        await bot.send_video(
+            message.chat.id, 
+            movie['file_id'], 
+            caption=f"🎬 Nomi: {movie['caption']}\n🆔 Kodi: {code}"
+        )
     else:
-        await message.reply("Kechirasiz, bu kod bilan kino topilmadi.")
+        await message.reply("Afsuski, bu kod bilan kino topilmadi. 😔")
 
-# Admin uchun kino yuklash (Video yuborilganda)
+# Videolarni qabul qilish va bazaga saqlash (Faqat Admin uchun)
 @dp.message_handler(content_types=['video'], user_id=ADMIN_ID)
 async def handle_video(message: types.Message):
-    # Bu yerda oddiygina oxirgi yuborilgan videoni saqlash logikasi
-    await message.reply(f"Video qabul qilindi! File ID: {message.video.file_id}\nUni bazaga qo'shish uchun kod bering.")
+    video_id = message.video.file_id
+    caption = message.caption if message.caption else "Nomsiz kino"
+    
+    # Videoni vaqtinchalik xotiraga saqlash
+    # Format: Agar izohda "123 Kino nomi" bo'lsa, 123 - kod bo'ladi
+    code = caption.split()[0]
+    movies[code] = {'file_id': video_id, 'caption': caption}
+    
+    await message.reply(f"✅ Kino bazaga qo'shildi!\n🆔 Kodi: {code}\n🎬 Nomi: {caption}")
 
+# --- 5. ISHGA TUSHIRISH ---
 if __name__ == '__main__':
+    # Flaskni alohida treda yoqamiz, bu Render uchun shart
+    t = threading.Thread(target=run)
+    t.start()
+    
     print("Bot ishga tushmoqda...")
-    keep_alive() # Flask serverni alohida treda yoqish
     executor.start_polling(dp, skip_updates=True)
